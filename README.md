@@ -47,7 +47,7 @@
 
 **会话 ID** 的格式示例：
 - **QQ群**: `napcat:GroupMessage:12345678` (将 `12345678` 替换为你的群号)
-- **QQ私聊**: `napcat:PrivateMessage:10001` (将 `10001` 替换为你的 QQ 号)
+- **QQ私聊**: `napcat:FriendMessage:10001` (将 `10001` 替换为你的 QQ 号)
 
 每个会话的配置包括两部分：
 1.  `steam_ids`: 一个包含17位 Steam ID 的列表。
@@ -84,7 +84,7 @@
     }
   },
   // 在与 QQ 用户 10001 的私聊中监控一个用户，并开启所有状态通知和隐私模式
-  "napcat:PrivateMessage:10001": {
+  "napcat:FriendMessage:10001": {
     "steam_ids": [
       "76561197960287930"
     ],

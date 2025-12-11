@@ -548,7 +548,7 @@ class SteamMonitor(Star):
         umo = event.unified_msg_origin
         target_info = self.monitored_targets.get(umo)
         if not target_info or not target_info.get("steam_ids"):
-            yield event.plain_result("当前会话未配置监控列表。" )
+            await self.context.send_message(umo, MessageChain().message("当前会话未配置监控列表。"))
             return
 
         steam_ids = target_info["steam_ids"]
@@ -557,17 +557,17 @@ class SteamMonitor(Star):
 
         tasks = [self._get_formatted_status(sid, player_map.get(sid)) for sid in steam_ids]
         results = await asyncio.gather(*tasks)
-        yield event.plain_result("\n".join(results))
+        await self.context.send_message(umo, MessageChain().message("\n".join(results)))
 
     @filter.command("steam alllist")
     async def steam_alllist(self, event: AstrMessageEvent):
         """获取所有会话监控的所有玩家的游戏状态。"""
         if self.admin_only_sensitive_operations and str(event.get_sender_id()) not in self.admins:
-            yield event.plain_result("此命令仅限管理员使用。")
+            await self.context.send_message(event.unified_msg_origin, MessageChain().message("此命令仅限管理员使用。"))
             return
 
         if not self.monitored_targets:
-            yield event.plain_result("没有任何监控配置。" )
+            await self.context.send_message(event.unified_msg_origin, MessageChain().message("没有任何监控配置。"))
             return
             
         all_ids = self._get_all_steam_ids()
@@ -586,7 +586,7 @@ class SteamMonitor(Star):
             final_reply_parts.append("") 
         
         if final_reply_parts: final_reply_parts.pop()
-        yield event.plain_result("\n".join(final_reply_parts))
+        await self.context.send_message(event.unified_msg_origin, MessageChain().message("\n".join(final_reply_parts)))
 
     @filter.command("steam add")
     async def steam_add(self, event: AstrMessageEvent, steam_id: str):
