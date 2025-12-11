@@ -558,6 +558,7 @@ class SteamMonitor(Star):
         tasks = [self._get_formatted_status(sid, player_map.get(sid)) for sid in steam_ids]
         results = await asyncio.gather(*tasks)
         await self.context.send_message(umo, MessageChain().message("\n".join(results)))
+        event.stop_event()
 
     @filter.command("steam alllist")
     async def steam_alllist(self, event: AstrMessageEvent):
@@ -587,6 +588,7 @@ class SteamMonitor(Star):
         
         if final_reply_parts: final_reply_parts.pop()
         await self.context.send_message(event.unified_msg_origin, MessageChain().message("\n".join(final_reply_parts)))
+        event.stop_event()
 
     @filter.command("steam add")
     async def steam_add(self, event: AstrMessageEvent, steam_id: str):
