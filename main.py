@@ -565,6 +565,7 @@ class SteamMonitor(Star):
         """获取所有会话监控的所有玩家的游戏状态。"""
         if self.admin_only_sensitive_operations and str(event.get_sender_id()) not in self.admins:
             await self.context.send_message(event.unified_msg_origin, MessageChain().message("此命令仅限管理员使用。"))
+            event.stop_event()
             return
 
         if not self.monitored_targets:
