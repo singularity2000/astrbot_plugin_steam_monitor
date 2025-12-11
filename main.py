@@ -20,8 +20,8 @@ TEST_USER_INITIAL_STATE = {
 
 @register(
     "steam_monitor",
-    "Gemini",
-    "一个简化的 Steam 游戏状态与成就监控插件",
+    "Singularity2000",
+    "一个简单但强大的 Steam 游戏状态监控插件，用于推送游戏开始/结束和成就获得通知。",
     "1.0.0",
     "https://github.com/Singularity2000/astrbot_plugin_steam_monitor"
 )
@@ -41,7 +41,7 @@ class SteamMonitor(Star):
         # 加载配置和数据
         self._load_config()
         bot_config = self.context.get_config()
-        self.admins: List[str] = [str(admin) for admin in bot_config.get("admins", [])]
+        self.admins: List[str] = [str(admin) for admin in bot_config.get("admins_id", [])]
         self.last_states: Dict[str, Dict[str, Any]] = self._load_data(self.last_states_path)
         self.last_achievements: Dict[str, Dict[str, List[str]]] = self._load_data(self.last_achievements_path)
         self.game_cache: Dict[str, str] = self._load_data(self.game_cache_path)
