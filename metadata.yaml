@@ -1,0 +1,6 @@
+name: astrbot_plugin_steam_monitor
+display_name: Steam 游戏状态监控
+desc: 一个简化的 Steam 游戏状态监控插件，用于推送游戏开始/结束和成就获得通知。
+version: 1.0.0
+author: Gemini
+repo: https://github.com/Singularity2000/astrbot_plugin_steam_monitor

@@ -1,0 +1,69 @@
+{
+  "steam_api_key": {
+    "description": "Steam Web API 密钥",
+    "type": "string",
+    "default": "",
+    "hint": "请在 https://steamcommunity.com/dev/apikey 获取"
+  },
+  "admin_only_sensitive_operations": {
+    "description": "敏感操作需管理员权限",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，'steam alllist', 'steam add', 'steam remove' 命令将仅限机器人管理员使用。"
+  },
+  "status_poll_interval": {
+    "description": "检查【在线/游戏状态】的间隔（秒）",
+    "type": "int",
+    "default": 60
+  },
+  "achievement_poll_interval": {
+    "description": "检查【成就状态】的间隔（秒）",
+    "type": "int",
+    "default": 180
+  },
+  "retry_times": {
+    "description": "请求失败时的最大重试次数",
+    "type": "int",
+    "default": 3
+  },
+  "detailed_poll_log": {
+    "description": "是否在控制台输出详细轮询日志",
+    "type": "bool",
+    "default": false
+  },
+  "status_notification": {
+    "description": "【总开关】是否启用Steam状态通知（游戏、在线/离线）",
+    "type": "bool",
+    "default": true
+  },
+  "online_offline_notification": {
+    "description": "是否启用上线/下线提醒（仅当“状态通知”开启时生效）",
+    "type": "bool",
+    "default": false
+  },
+  "achievements_notification": {
+    "description": "【总开关】是否启用成就通知",
+    "type": "bool",
+    "default": true
+  },
+  "private_mode": {
+    "description": "【总开关】是否启用隐私模式",
+    "type": "bool",
+    "default": false,
+    "hint": "若开启，则插件主动推送的所有消息，其中的【Steam昵称】字段全部变为隐私代称。"
+  },
+  "private_name": {
+    "description": "隐私代称",
+    "type": "string",
+    "default": "",
+    "hint": "若为空则推送消息的主语默认变为“有人”。例如：【Steam昵称】上线了→有人上线了；若输入“神秘群友”：【Steam昵称】上线了→神秘群友上线了。"
+  },
+  "monitored_targets": {
+    "description": "监控目标 (支持会话独立设置)",
+    "type": "text",
+    "default": "{\n  \"napcat:GroupMessage:12345678\": {\n    \"steam_ids\": [\n      \"76561198872155923\",\n      \"76561198162682439\"\n    ],\n    \"settings\": null\n  },\n  \"napcat:GroupMessage:87654321\": {\n    \"steam_ids\": [\n      \"76561198082578593\",\n      \"76561198329268343\"\n    ],\n    \"settings\": {\n      \"status_notification\": false,\n      \"achievements_notification\": true\n    }\n  },\n  \"napcat:PrivateMessage:10001\": {\n    \"steam_ids\": [\n      \"76561197960287930\"\n    ],\n    \"settings\": {\n      \"status_notification\": true,\n      \"online_offline_notification\": true,\n      \"achievements_notification\": false,\n      \"private_mode\": true\n    }\n  }\n}",
+    "hint": "JSON格式。每个会话ID下包含 steam_ids 列表和可选的 settings。settings可覆盖全局通知设置，不填则使用全局设置。",
+    "editor_mode": true,
+    "editor_language": "json"
+  }
+}
