@@ -514,8 +514,8 @@ class SteamMonitor(Star):
                 logger.info(f"推送成就消息到 {umo}: {msg}")
 
     # --- 命令实现 ---
-    async def _get_formatted_status(self, steam_id: str) -> str:
-        """获取单个玩家的格式化状态字符串"""
+    async def _get_formatted_status(self, steam_id: str, player: Optional[Dict] = None) -> str:
+        """获取单个玩家的格式化状态字符串。可选择传入player字典以避免重复API调用。"""
         # --- 模拟测试用户 ---
         if steam_id == TEST_USER_STEAM_ID:
             game_name = self.test_user_mock_state.get("gameextrainfo", "Cyberpunk 2077")
@@ -525,11 +525,12 @@ class SteamMonitor(Star):
             return f"【{self.test_user_mock_state.get('personaname', '测试ID')}】{state_map.get(self.test_user_mock_state.get('personastate', 0), '未知状态')}"
         # --- 模拟结束 ---
 
-        players = await self.get_player_summaries([steam_id])
-        if not players:
-            return f"【{steam_id}】查询失败"
+        if player is None:
+            players = await self.get_player_summaries([steam_id])
+            if not players:
+                return f"【{steam_id}】查询失败"
+            player = players[0]
 
-        player = players[0]
         name = player.get("personaname", "未知玩家")
         game_id = player.get("gameid")
         persona_state = player.get("personastate", 0)
@@ -551,7 +552,10 @@ class SteamMonitor(Star):
             return
 
         steam_ids = target_info["steam_ids"]
-        tasks = [self._get_formatted_status(sid) for sid in steam_ids]
+        players = await self.get_player_summaries(steam_ids)
+        player_map = {p["steamid"]: p for p in players} if players else {}
+
+        tasks = [self._get_formatted_status(sid, player_map.get(sid)) for sid in steam_ids]
         results = await asyncio.gather(*tasks)
         yield event.plain_result("\n".join(results))
 
@@ -566,13 +570,17 @@ class SteamMonitor(Star):
             yield event.plain_result("没有任何监控配置。" )
             return
             
+        all_ids = self._get_all_steam_ids()
+        players = await self.get_player_summaries(list(all_ids))
+        player_map = {p["steamid"]: p for p in players} if players else {}
+        
         final_reply_parts = []
         for umo, target_info in self.monitored_targets.items():
             steam_ids = target_info.get("steam_ids")
             if not steam_ids: continue
             
             final_reply_parts.append(f"--- {umo} ---")
-            tasks = [self._get_formatted_status(sid) for sid in steam_ids]
+            tasks = [self._get_formatted_status(sid, player_map.get(sid)) for sid in steam_ids]
             results = await asyncio.gather(*tasks)
             final_reply_parts.extend(results)
             final_reply_parts.append("") 
