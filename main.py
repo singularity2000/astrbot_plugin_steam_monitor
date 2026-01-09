@@ -72,7 +72,10 @@ class SteamMonitor(Star):
         if self.api_key:
             self.status_monitor_task = asyncio.create_task(self.status_monitoring_loop())
             # 错开启动，避免同时请求
-            asyncio.create_task(self._start_achievement_loop_delayed())
+            if self.achievement_poll_interval > 0:
+                asyncio.create_task(self._start_achievement_loop_delayed())
+            else:
+                logger.info("成就检查间隔设置为 0，已关闭成就监控循环。")
         else:
             logger.warning("Steam API Key 未配置，插件不会启动。")
 
@@ -107,12 +110,15 @@ class SteamMonitor(Star):
                 logger.error(f"加载数据失败 {path}: {e}")
         return {}
 
-    def _save_data(self, path: str, data: Any):
+    async def _save_data(self, path: str, data: Any):
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-        except IOError as e:
+            await asyncio.to_thread(self._write_json_sync, path, data)
+        except Exception as e:
             logger.error(f"保存数据失败 {path}: {e}")
+
+    def _write_json_sync(self, path: str, data: Any):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
 
     def _get_all_steam_ids(self) -> Set[str]:
         """从监控目标中提取所有唯一的Steam ID"""
@@ -199,7 +205,7 @@ class SteamMonitor(Star):
         if data and str(app_id) in data and data[str(app_id)].get("success"):
             name = data[str(app_id)]["data"]["name"]
             self.game_cache[app_id] = name
-            self._save_data(self.game_cache_path, self.game_cache)
+            await self._save_data(self.game_cache_path, self.game_cache)
             return name
         return f"未知游戏({app_id})"
 
@@ -231,7 +237,7 @@ class SteamMonitor(Star):
         if data and "game" in data and "availableGameStats" in data["game"]:
             schema = {ach["name"]: ach for ach in data["game"]["availableGameStats"]["achievements"]}
             self.achievement_schema[app_id] = schema
-            self._save_data(self.achievement_schema_path, self.achievement_schema)
+            await self._save_data(self.achievement_schema_path, self.achievement_schema)
             return schema
         return None
 
@@ -289,8 +295,9 @@ class SteamMonitor(Star):
                 # 更新测试用户状态
                 current_states[TEST_USER_STEAM_ID] = self.last_states.get(TEST_USER_STEAM_ID, TEST_USER_INITIAL_STATE.copy())
 
-                self.last_states = current_states
-                self._save_data(self.last_states_path, self.last_states)
+                if self.last_states != current_states:
+                    self.last_states = current_states
+                    await self._save_data(self.last_states_path, self.last_states)
 
                 if self.is_first_status_run:
                     self.is_first_status_run = False
@@ -324,14 +331,22 @@ class SteamMonitor(Star):
                 results = await asyncio.gather(*tasks)
 
                 # 处理结果并更新状态
+                data_changed = False
                 for result_data in results:
                     if result_data:
                         steam_id, user_achievements = result_data
                         if steam_id not in self.last_achievements:
                             self.last_achievements[steam_id] = {}
-                        self.last_achievements[steam_id].update(user_achievements)
+                            data_changed = True
+                        
+                        for app_id, new_achs in user_achievements.items():
+                            old_achs = self.last_achievements[steam_id].get(app_id, [])
+                            if set(new_achs) != set(old_achs):
+                                self.last_achievements[steam_id][app_id] = new_achs
+                                data_changed = True
 
-                self._save_data(self.last_achievements_path, self.last_achievements)
+                if data_changed:
+                    await self._save_data(self.last_achievements_path, self.last_achievements)
 
                 if self.is_first_achievement_run:
                     self.is_first_achievement_run = False
@@ -428,20 +443,20 @@ class SteamMonitor(Star):
             if current_game_id: # 开始玩新游戏
                 game_name = current_state.get("gameextrainfo") or await self.get_game_name(current_game_id)
                 current_state["gameextrainfo"] = game_name
-                messages_to_send.append((f"【{player_name}】开始玩【{game_name}】了", "status"))
+                messages_to_send.append((f"{player_name} 开始玩 {game_name} 了", "status"))
             else: # 退出游戏
                 last_game_name = last_state.get("gameextrainfo") or await self.get_game_name(last_game_id)
                 if current_status == 0: # 游戏中 -> 离线
                     # 使用一个特殊的元组来延迟决定消息内容
                     messages_to_send.append(((player_name, last_game_name), "game_to_offline"))
                 else: # 游戏中 -> 在线
-                    messages_to_send.append((f"【{player_name}】退出了游戏【{last_game_name}】", "status"))
+                    messages_to_send.append((f"{player_name} 退出了游戏 {last_game_name}", "status"))
         # 在线/离线状态变更 (仅当游戏状态未变时)
         elif last_status != current_status and not current_game_id:
             if last_status == 0 and current_status > 0: # 上线
-                messages_to_send.append((f"【{player_name}】上线了", "online_offline"))
+                messages_to_send.append((f"{player_name} 上线了", "online_offline"))
             elif last_status > 0 and current_status == 0: # 下线
-                messages_to_send.append((f"【{player_name}】下线了", "online_offline"))
+                messages_to_send.append((f"{player_name} 下线了", "online_offline"))
 
         if not messages_to_send:
             return
@@ -458,9 +473,9 @@ class SteamMonitor(Star):
                     _, l_game_name = msg_content
                     # 根据接收方的配置决定发送哪条消息
                     if online_offline_ok:
-                        final_msg = f"【{display_name}】下线了"
+                        final_msg = f"{display_name} 下线了"
                     elif status_ok:
-                        final_msg = f"【{display_name}】退出了游戏【{l_game_name}】"
+                        final_msg = f"{display_name} 退出了游戏 {l_game_name}"
                 else:
                     # 原始逻辑
                     should_send = (msg_type == "status" and status_ok) or \
@@ -470,15 +485,15 @@ class SteamMonitor(Star):
                         if msg_type == "status":
                             if "开始玩" in msg_content:
                                 game_name = current_state.get("gameextrainfo")
-                                final_msg = f"【{display_name}】开始玩【{game_name}】了"
+                                final_msg = f"{display_name} 开始玩 {game_name} 了"
                             elif "退出了游戏" in msg_content:
                                 last_game_name = last_state.get("gameextrainfo")
-                                final_msg = f"【{display_name}】退出了游戏【{last_game_name}】"
+                                final_msg = f"{display_name} 退出了游戏 {last_game_name}"
                         elif msg_type == "online_offline":
                             if "上线了" in msg_content:
-                                final_msg = f"【{display_name}】上线了"
+                                final_msg = f"{display_name} 上线了"
                             elif "下线了" in msg_content:
-                                final_msg = f"【{display_name}】下线了"
+                                final_msg = f"{display_name} 下线了"
 
                 if final_msg:
                     await self.context.send_message(umo, MessageChain().message(final_msg))
@@ -507,7 +522,7 @@ class SteamMonitor(Star):
                 display_name = self.private_name or "有人" if private_mode_enabled else player_name
                 msg_body = "\n".join(ach_details)
                 msg = (
-                    f"【{display_name}】在【{game_name}】中获得了新成就：\n{msg_body}\n"
+                    f"{display_name} 在 {game_name} 中获得了新成就：\n{msg_body}\n"
                     f"（已获得{total_achieved}个/共{total_schema_count}个）"
                 )
                 await self.context.send_message(umo, MessageChain().message(msg))
@@ -520,15 +535,15 @@ class SteamMonitor(Star):
         if steam_id == TEST_USER_STEAM_ID:
             game_name = self.test_user_mock_state.get("gameextrainfo", "Cyberpunk 2077")
             if self.test_user_mock_state.get("gameid"):
-                return f"【{self.test_user_mock_state.get('personaname', '测试ID')}】正在玩【{game_name}】"
+                return f"{self.test_user_mock_state.get('personaname', '测试ID')} 正在玩 {game_name}"
             state_map = {0: "离线", 1: "在线", 2: "忙碌", 3: "离开", 4: "打盹", 5: "想交易", 6: "想玩游戏"}
-            return f"【{self.test_user_mock_state.get('personaname', '测试ID')}】{state_map.get(self.test_user_mock_state.get('personastate', 0), '未知状态')}"
+            return f"{self.test_user_mock_state.get('personaname', '测试ID')} {state_map.get(self.test_user_mock_state.get('personastate', 0), '未知状态')}"
         # --- 模拟结束 ---
 
         if player is None:
             players = await self.get_player_summaries([steam_id])
             if not players:
-                return f"【{steam_id}】查询失败"
+                return f"{steam_id} 查询失败"
             player = players[0]
 
         name = player.get("personaname", "未知玩家")
@@ -537,10 +552,10 @@ class SteamMonitor(Star):
 
         if game_id:
             game_name = player.get("gameextrainfo") or await self.get_game_name(game_id)
-            return f"【{name}】正在玩【{game_name}】"
+            return f"{name} 正在玩 {game_name}"
         
         state_map = {0: "离线", 1: "在线", 2: "忙碌", 3: "离开", 4: "打盹", 5: "想交易", 6: "想玩游戏"}
-        return f"【{name}】{state_map.get(persona_state, '未知状态')}"
+        return f"{name} {state_map.get(persona_state, '未知状态')}"
 
     @filter.command("steam list")
     async def steam_list(self, event: AstrMessageEvent):
@@ -729,9 +744,9 @@ class SteamMonitor(Star):
             self.achievement_monitor_task.cancel()
         
         # 保存所有数据
-        self._save_data(self.last_states_path, self.last_states)
-        self._save_data(self.last_achievements_path, self.last_achievements)
-        self._save_data(self.game_cache_path, self.game_cache)
-        self._save_data(self.achievement_schema_path, self.achievement_schema)
+        await self._save_data(self.last_states_path, self.last_states)
+        await self._save_data(self.last_achievements_path, self.last_achievements)
+        await self._save_data(self.game_cache_path, self.game_cache)
+        await self._save_data(self.achievement_schema_path, self.achievement_schema)
         
         logger.info("Steam 监控插件已停止并保存了所有数据。" )

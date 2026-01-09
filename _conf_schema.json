@@ -17,7 +17,7 @@
     "default": 180
   },
   "achievement_poll_interval": {
-    "description": "检查【成就状态】的间隔（秒）",
+    "description": "检查【成就状态】的间隔（秒），设为 0 则关闭成就监控",
     "type": "int",
     "default": 1800
   },
