@@ -69,6 +69,9 @@ class SteamMonitor(Star):
         self.achievement_monitor_task: Optional[asyncio.Task] = None
         self.achievement_semaphore = asyncio.Semaphore(4)
 
+        # 初始化共享的 HTTP 客户端，复用连接池以减少 SSL 握手开销
+        self.http_client = httpx.AsyncClient(timeout=20)
+
         if self.api_key:
             self.status_monitor_task = asyncio.create_task(self.status_monitoring_loop())
             # 错开启动，避免同时请求
@@ -151,10 +154,9 @@ class SteamMonitor(Star):
         """发起HTTP请求，支持重试"""
         for attempt in range(self.retry_times):
             try:
-                async with httpx.AsyncClient(timeout=20) as client:
-                    resp = await client.get(url)
-                    resp.raise_for_status()
-                    return resp.json()
+                resp = await self.http_client.get(url)
+                resp.raise_for_status()
+                return resp.json()
             except (httpx.HTTPStatusError, httpx.RequestError) as e:
                 if not ignore_errors:
                     logger.warning(f"请求失败 (第 {attempt + 1} 次): {e}")
@@ -742,6 +744,9 @@ class SteamMonitor(Star):
             self.status_monitor_task.cancel()
         if self.achievement_monitor_task:
             self.achievement_monitor_task.cancel()
+        
+        if hasattr(self, "http_client"):
+            await self.http_client.aclose()
         
         # 保存所有数据
         await self._save_data(self.last_states_path, self.last_states)
