@@ -35,6 +35,7 @@ class SteamMonitor(Star):
         # 数据文件路径
         self.last_states_path = os.path.join(self.data_dir, "last_states.json")
         self.last_achievements_path = os.path.join(self.data_dir, "last_achievements.json")
+        self.last_playtimes_path = os.path.join(self.data_dir, "last_playtimes.json")
         self.game_cache_path = os.path.join(self.data_dir, "game_cache.json")
         self.achievement_schema_path = os.path.join(self.data_dir, "achievement_schema.json")
 
@@ -44,6 +45,7 @@ class SteamMonitor(Star):
         self.admins: List[str] = [str(admin) for admin in bot_config.get("admins_id", [])]
         self.last_states: Dict[str, Dict[str, Any]] = self._load_data(self.last_states_path)
         self.last_achievements: Dict[str, Dict[str, List[str]]] = self._load_data(self.last_achievements_path)
+        self.last_playtimes: Dict[str, Dict[str, int]] = self._load_data(self.last_playtimes_path)
         self.game_cache: Dict[str, str] = self._load_data(self.game_cache_path)
         self.achievement_schema: Dict[str, Dict[str, Any]] = self._load_data(self.achievement_schema_path)
 
@@ -68,6 +70,10 @@ class SteamMonitor(Star):
         self.status_monitor_task: Optional[asyncio.Task] = None
         self.achievement_monitor_task: Optional[asyncio.Task] = None
         self.achievement_semaphore = asyncio.Semaphore(4)
+
+        # 极致优化：商店API专用信号量与请求合并字典
+        self.store_api_semaphore = asyncio.Semaphore(2) # 限制同时查询游戏名的并发数，防止商店API封IP
+        self._pending_game_tasks: Dict[str, asyncio.Task] = {} # 用于请求合并（惊群效应保护）
 
         # 初始化共享的 HTTP 客户端，复用连接池以减少 SSL 握手开销
         self.http_client = httpx.AsyncClient(timeout=20)
@@ -95,6 +101,7 @@ class SteamMonitor(Star):
         self.global_status_notification: bool = self.config.get("status_notification", True)
         self.global_online_offline: bool = self.config.get("online_offline_notification", False)
         self.global_achievements: bool = self.config.get("achievements_notification", True)
+        self.global_playtime_notification: bool = self.config.get("playtime_notification", True)
         self.private_mode: bool = self.config.get("private_mode", False)
         self.private_name: str = self.config.get("private_name", "")
         
@@ -131,7 +138,7 @@ class SteamMonitor(Star):
                 all_ids.update(target_info["steam_ids"])
         return all_ids
 
-    def _get_umo_settings(self, umo: str) -> Tuple[bool, bool, bool, bool]:
+    def _get_umo_settings(self, umo: str) -> Tuple[bool, bool, bool, bool, bool]:
         """获取指定会话的通知设置，如果未指定则回退到全局设置"""
         target_info = self.monitored_targets.get(umo, {})
         settings = target_info.get("settings") if isinstance(target_info, dict) else None
@@ -140,24 +147,37 @@ class SteamMonitor(Star):
             status_enabled = settings.get("status_notification", self.global_status_notification)
             online_offline_enabled = status_enabled and settings.get("online_offline_notification", self.global_online_offline)
             achievement_enabled = settings.get("achievements_notification", self.global_achievements)
+            playtime_enabled = settings.get("playtime_notification", self.global_playtime_notification)
             private_mode_enabled = settings.get("private_mode", self.private_mode)
-            return status_enabled, online_offline_enabled, achievement_enabled, private_mode_enabled
+            return status_enabled, online_offline_enabled, achievement_enabled, private_mode_enabled, playtime_enabled
         
         # 回退到全局
         status_enabled = self.global_status_notification
         online_offline_enabled = status_enabled and self.global_online_offline
         achievement_enabled = self.global_achievements
+        playtime_enabled = self.global_playtime_notification
         private_mode_enabled = self.private_mode
-        return status_enabled, online_offline_enabled, achievement_enabled, private_mode_enabled
+        return status_enabled, online_offline_enabled, achievement_enabled, private_mode_enabled, playtime_enabled
 
     async def _make_request(self, url: str, ignore_errors: bool = False) -> Optional[Dict]:
         """发起HTTP请求，支持重试"""
         for attempt in range(self.retry_times):
             try:
+                # 方案一：如果客户端已关闭，主动重建
+                if self.http_client.is_closed:
+                    logger.warning("HTTP客户端已关闭，正在重建...")
+                    self.http_client = httpx.AsyncClient(timeout=20)
+
                 resp = await self.http_client.get(url)
                 resp.raise_for_status()
                 return resp.json()
-            except (httpx.HTTPStatusError, httpx.RequestError) as e:
+            except (httpx.HTTPStatusError, httpx.RequestError, RuntimeError) as e:
+                # 方案一补丁：捕获运行时连接关闭错误并重试
+                if isinstance(e, RuntimeError) and "client has been closed" in str(e):
+                    logger.warning(f"请求时发现客户端已关闭，尝试重建 (第 {attempt + 1} 次)")
+                    self.http_client = httpx.AsyncClient(timeout=20)
+                    continue
+
                 if not ignore_errors:
                     logger.warning(f"请求失败 (第 {attempt + 1} 次): {e}")
                 if attempt < self.retry_times - 1:
@@ -199,17 +219,56 @@ class SteamMonitor(Star):
         return real_players + mock_player_data if real_players else mock_player_data
 
     async def get_game_name(self, app_id: str) -> str:
+        app_id = str(app_id)
         if app_id in self.game_cache:
             return self.game_cache[app_id]
         
-        url = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=schinese"
-        data = await self._make_request(url, ignore_errors=True)
-        if data and str(app_id) in data and data[str(app_id)].get("success"):
-            name = data[str(app_id)]["data"]["name"]
-            self.game_cache[app_id] = name
-            await self._save_data(self.game_cache_path, self.game_cache)
-            return name
-        return f"未知游戏({app_id})"
+        # 请求合并：如果已有任务在查询该ID，直接等待其结果，不重复发起请求
+        if app_id in self._pending_game_tasks:
+            return await self._pending_game_tasks[app_id]
+
+        # 创建新任务并记录
+        task = asyncio.create_task(self._fetch_game_name_internal(app_id))
+        self._pending_game_tasks[app_id] = task
+        
+        try:
+            return await task
+        finally:
+            # 任务结束后清理记录
+            self._pending_game_tasks.pop(app_id, None)
+
+    async def _fetch_game_name_internal(self, app_id: str) -> str:
+        """内部方法：受信号量控制的实际网络请求"""
+        async with self.store_api_semaphore:
+            # 并发请求中英文名称
+            url_zh = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=schinese"
+            url_en = f"https://store.steampowered.com/api/appdetails?appids={app_id}&l=english"
+            
+            task_zh = self._make_request(url_zh, ignore_errors=True)
+            task_en = self._make_request(url_en, ignore_errors=True)
+            data_zh, data_en = await asyncio.gather(task_zh, task_en)
+            
+            name_zh = None
+            if data_zh and app_id in data_zh and data_zh[app_id].get("success"):
+                name_zh = data_zh[app_id]["data"]["name"]
+                
+            name_en = None
+            if data_en and app_id in data_en and data_en[app_id].get("success"):
+                name_en = data_en[app_id]["data"]["name"]
+                
+            final_name = f"未知游戏({app_id})"
+            if name_zh and name_en and name_zh != name_en:
+                final_name = f"{name_zh} ({name_en})"
+            elif name_zh:
+                final_name = name_zh
+            elif name_en:
+                final_name = name_en
+                
+            if name_zh or name_en:
+                self.game_cache[app_id] = final_name
+                await self._save_data(self.game_cache_path, self.game_cache)
+            
+            return final_name
 
     async def get_recently_played_games(self, steam_id: str) -> Optional[List[Dict]]:
         url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={self.api_key}&steamid={steam_id}&count=2"
@@ -334,12 +393,14 @@ class SteamMonitor(Star):
 
                 # 处理结果并更新状态
                 data_changed = False
+                playtime_data_changed = False
+                umo_playtime_msgs: Dict[str, Dict[str, List[str]]] = {} # umo -> {steam_id -> [msg_lines]}
+
                 for result_data in results:
                     if result_data:
-                        steam_id, user_achievements = result_data
+                        steam_id, user_achievements, playtime_updates = result_data
                         if steam_id not in self.last_achievements:
                             self.last_achievements[steam_id] = {}
-                            data_changed = True
                         
                         for app_id, new_achs in user_achievements.items():
                             old_achs = self.last_achievements[steam_id].get(app_id, [])
@@ -347,8 +408,48 @@ class SteamMonitor(Star):
                                 self.last_achievements[steam_id][app_id] = new_achs
                                 data_changed = True
 
+                        # 处理游戏时长更新
+                        if playtime_updates:
+                            if steam_id not in self.last_playtimes:
+                                self.last_playtimes[steam_id] = {}
+                            
+                            for app_id, info in playtime_updates.items():
+                                self.last_playtimes[steam_id][app_id] = info["current"]
+                                playtime_data_changed = True
+                                
+                                # 准备推送消息 (仅当不是首次运行且有差异时)
+                                if not self.is_first_achievement_run and info["diff"] > 0:
+                                    umos = steam_id_to_umos.get(steam_id, [])
+                                    for umo in umos:
+                                        _, _, _, _, playtime_enabled = self._get_umo_settings(umo)
+                                        if playtime_enabled:
+                                            if umo not in umo_playtime_msgs:
+                                                umo_playtime_msgs[umo] = {}
+                                            if steam_id not in umo_playtime_msgs[umo]:
+                                                umo_playtime_msgs[umo][steam_id] = []
+                                            
+                                            umo_playtime_msgs[umo][steam_id].append(f"  - {info['name']} {info['diff']}分钟")
+
                 if data_changed:
                     await self._save_data(self.last_achievements_path, self.last_achievements)
+                
+                if playtime_data_changed:
+                    await self._save_data(self.last_playtimes_path, self.last_playtimes)
+
+                # 发送聚合的游戏时长通知
+                for umo, steam_data in umo_playtime_msgs.items():
+                    msg_lines = []
+                    for steam_id, game_lines in steam_data.items():
+                        _, _, _, private_mode_enabled, _ = self._get_umo_settings(umo)
+                        player_name = self.last_states.get(steam_id, {}).get("personaname", steam_id)
+                        display_name = self.private_name or "有人" if private_mode_enabled else player_name
+                        
+                        msg_lines.append(f"{display_name} 在上一个检测周期内玩了：")
+                        msg_lines.extend(game_lines)
+                        msg_lines.append("") # 空行分隔不同玩家
+                    
+                    if msg_lines:
+                        await self.context.send_message(umo, MessageChain().message("\n".join(msg_lines).strip()))
 
                 if self.is_first_achievement_run:
                     self.is_first_achievement_run = False
@@ -362,17 +463,36 @@ class SteamMonitor(Star):
 
     async def _check_achievements_for_user(
         self, steam_id: str, steam_id_to_umos: Dict[str, List[str]]
-    ) -> Optional[Tuple[str, Dict[str, List[str]]]]:
+    ) -> Optional[Tuple[str, Dict[str, List[str]], Dict[str, Dict]]]:
         """获取并比对单个用户的成就，返回需要更新的数据"""
         async with self.achievement_semaphore:
             try:
                 app_ids_to_check = set()
+                playtime_updates = {} # {app_id: {name, diff, current}}
+
                 # 策略1: 获取最近玩过的游戏
                 recent_games = await self.get_recently_played_games(steam_id)
                 if recent_games:
                     for game in recent_games:
-                        app_ids_to_check.add(str(game["appid"]))
+                        app_id = str(game["appid"])
+                        app_ids_to_check.add(app_id)
 
+                        # 计算游戏时长变化
+                        playtime_forever = game.get("playtime_forever", 0)
+                        last_playtime = self.last_playtimes.get(steam_id, {}).get(app_id, 0)
+                        
+                        if playtime_forever > last_playtime:
+                            diff = playtime_forever - last_playtime
+                            # 尝试获取双语名称，如果失败则使用 recent_games 中的名称
+                            game_name = await self.get_game_name(app_id)
+                            if "未知游戏" in game_name and game.get("name"):
+                                game_name = game["name"]
+                            
+                            playtime_updates[app_id] = {
+                                "name": game_name,
+                                "diff": diff,
+                                "current": playtime_forever
+                            }
                 # 策略2: 获取当前正在玩的游戏
                 player_state = self.last_states.get(steam_id)
                 if player_state and player_state.get("gameid"):
@@ -412,7 +532,7 @@ class SteamMonitor(Star):
                     # 记录需要更新的成就数据
                     user_achievements_update[app_id] = achieved_list
                 
-                return steam_id, user_achievements_update
+                return steam_id, user_achievements_update, playtime_updates
 
             except Exception as e:
                 logger.error(f"检查用户 {steam_id} 的成就时出错: {e}", exc_info=True)
@@ -443,11 +563,17 @@ class SteamMonitor(Star):
         # 游戏状态变更
         if last_game_id != current_game_id:
             if current_game_id: # 开始玩新游戏
-                game_name = current_state.get("gameextrainfo") or await self.get_game_name(current_game_id)
+                # 优先获取商店双语名称
+                game_name = await self.get_game_name(current_game_id)
+                if "未知游戏" in game_name and current_state.get("gameextrainfo"):
+                    game_name = current_state.get("gameextrainfo")
+                
                 current_state["gameextrainfo"] = game_name
                 messages_to_send.append((f"{player_name} 开始玩 {game_name} 了", "status"))
             else: # 退出游戏
-                last_game_name = last_state.get("gameextrainfo") or await self.get_game_name(last_game_id)
+                last_game_name = await self.get_game_name(last_game_id)
+                if "未知游戏" in last_game_name and last_state.get("gameextrainfo"):
+                    last_game_name = last_state.get("gameextrainfo")
                 if current_status == 0: # 游戏中 -> 离线
                     # 使用一个特殊的元组来延迟决定消息内容
                     messages_to_send.append(((player_name, last_game_name), "game_to_offline"))
@@ -466,7 +592,7 @@ class SteamMonitor(Star):
         umos = steam_id_to_umos.get(steam_id, [])
         for msg_content, msg_type in messages_to_send:
             for umo in umos:
-                status_ok, online_offline_ok, _, private_mode_enabled = self._get_umo_settings(umo)
+                status_ok, online_offline_ok, _, private_mode_enabled, _ = self._get_umo_settings(umo)
                 
                 display_name = self.private_name or "有人" if private_mode_enabled else player_name
 
@@ -519,7 +645,7 @@ class SteamMonitor(Star):
 
         umos = steam_id_to_umos.get(steam_id, [])
         for umo in umos:
-            _, _, achievement_ok, private_mode_enabled = self._get_umo_settings(umo)
+            _, _, achievement_ok, private_mode_enabled, _ = self._get_umo_settings(umo)
             if achievement_ok:
                 display_name = self.private_name or "有人" if private_mode_enabled else player_name
                 msg_body = "\n".join(ach_details)
@@ -740,17 +866,25 @@ class SteamMonitor(Star):
 
     async def terminate(self):
         """插件终止时调用的清理函数"""
-        if self.status_monitor_task:
+        # 方案二：优雅停机，先停止任务并等待结束
+        tasks = []
+        if self.status_monitor_task and not self.status_monitor_task.done():
             self.status_monitor_task.cancel()
-        if self.achievement_monitor_task:
+            tasks.append(self.status_monitor_task)
+        if self.achievement_monitor_task and not self.achievement_monitor_task.done():
             self.achievement_monitor_task.cancel()
+            tasks.append(self.achievement_monitor_task)
         
-        if hasattr(self, "http_client"):
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        if hasattr(self, "http_client") and not self.http_client.is_closed:
             await self.http_client.aclose()
         
         # 保存所有数据
         await self._save_data(self.last_states_path, self.last_states)
         await self._save_data(self.last_achievements_path, self.last_achievements)
+        await self._save_data(self.last_playtimes_path, self.last_playtimes)
         await self._save_data(self.game_cache_path, self.game_cache)
         await self._save_data(self.achievement_schema_path, self.achievement_schema)
         

@@ -46,6 +46,11 @@
     "type": "bool",
     "default": true
   },
+  "playtime_notification": {
+    "description": "【总开关】是否启用游戏时长通知",
+    "type": "bool",
+    "default": true
+  },
   "private_mode": {
     "description": "【总开关】是否启用隐私模式",
     "type": "bool",
@@ -61,7 +66,7 @@
   "monitored_targets": {
     "description": "监控目标 (支持会话独立设置)",
     "type": "text",
-    "default": "{\n  \"napcat:GroupMessage:12345678\": {\n    \"steam_ids\": [\n      \"76000000000000023\",\n      \"76000000000000039\"\n    ],\n    \"settings\": null\n  },\n  \"napcat:GroupMessage:87654321\": {\n    \"steam_ids\": [\n      \"76000000000000093\",\n      \"76000000000000043\"\n    ],\n    \"settings\": {\n      \"status_notification\": false,\n      \"achievements_notification\": true\n    }\n  },\n  \"napcat:FriendMessage:10001\": {\n    \"steam_ids\": [\n      \"76000000000000030\"\n    ],\n    \"settings\": {\n      \"status_notification\": true,\n      \"online_offline_notification\": true,\n      \"achievements_notification\": false,\n      \"private_mode\": true\n    }\n  }\n}",
+    "default": "{\n  \"napcat:GroupMessage:12345678\": {\n    \"steam_ids\": [\n      \"76000000000000023\",\n      \"76000000000000039\"\n    ],\n    \"settings\": null\n  },\n  \"napcat:GroupMessage:87654321\": {\n    \"steam_ids\": [\n      \"76000000000000093\",\n      \"76000000000000043\"\n    ],\n    \"settings\": {\n      \"status_notification\": false,\n      \"achievements_notification\": true,\n      \"playtime_notification\": true\n    }\n  },\n  \"napcat:FriendMessage:10001\": {\n    \"steam_ids\": [\n      \"76000000000000030\"\n    ],\n    \"settings\": {\n      \"status_notification\": true,\n      \"online_offline_notification\": true,\n      \"achievements_notification\": false,\n      \"private_mode\": true\n    }\n  }\n}",
     "hint": "JSON格式。每个会话ID下包含 steam_ids 列表和可选的 settings。settings可覆盖全局通知设置，不填则使用全局设置。",
     "editor_mode": true,
     "editor_language": "json"

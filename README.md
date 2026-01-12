@@ -10,6 +10,7 @@
     - **游戏状态**: 监控用户开始玩、退出游戏的状态。
     - **在线状态**: 监控用户上线、下线的状态（可配置开启/关闭）。
     - **成就进度**: 监控用户获得的新成就，并展示成就详情。
+    - **游戏时长**: 监控用户在检测周期内的游戏时长变化（反隐身雷达）。
 - **高度可定制化**:
     - **多会话支持**: 可以为不同的群聊或私聊设置不同的监控列表。
     - **独立通知开关**: 每个群聊/私聊都可以独立设置是否接收游戏状态、在线状态、成就动态的通知，覆盖全局设置。
@@ -35,6 +36,7 @@
 | `status_notification`              | 布尔   | **全局总开关**：是否开启游戏和在线/离线状态的通知。                                                                                                                                                                             |
 | `online_offline_notification`      | 布尔   | 是否在用户上线/下线时发送通知。这依赖于 `status_notification` 开启。                                                                                                                                                       |
 | `achievements_notification`        | 布尔   | **全局总开关**：是否开启新成就的通知。                                                                                                                                                                                      |
+| `playtime_notification`            | 布尔   | **全局总开关**：是否开启游戏时长变化的通知（默认开启）。                                                                                                                                                                        |
 | `private_mode`                     | 布尔   | **全局总开关**：是否在所有通知中隐藏 Steam 昵称。                                                                                                                                                                         |
 | `private_name`                     | 字符串 | 当 `private_mode` 开启时，用来替换 Steam 昵称的自定义代称。如果留空，默认为“有人”。例如：`张三 上线了` -> `有人 上线了`。                                                                                                                                    |
 | `monitored_targets`                | 文本   | **（核心配置）** 一个 JSON 格式的文本，用于定义监控目标。**请看下方的详细解释**。                                                                                                                                        |
@@ -58,6 +60,7 @@
 - `status_notification` (布尔)
 - `online_offline_notification` (布尔)
 - `achievements_notification` (布尔)
+- `playtime_notification` (布尔)
 - `private_mode` (布尔)
 
 #### 配置示例
@@ -80,7 +83,8 @@
     ],
     "settings": {
       "status_notification": false,
-      "achievements_notification": true
+      "achievements_notification": true,
+      "playtime_notification": true
     }
   },
   // 在与 QQ 用户 10001 的私聊中监控一个用户，并开启所有状态通知和隐私模式
