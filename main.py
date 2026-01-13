@@ -92,8 +92,8 @@ class SteamMonitor(Star):
         """从配置对象加载或重载配置"""
         self.api_key: str = self.config.get("steam_api_key", "")
         self.admin_only_sensitive_operations: bool = self.config.get("admin_only_sensitive_operations", True)
-        self.status_poll_interval: int = self.config.get("status_poll_interval", 60)
-        self.achievement_poll_interval: int = self.config.get("achievement_poll_interval", 600)
+        self.status_poll_interval: int = self.config.get("status_poll_interval", 180)
+        self.achievement_poll_interval: int = self.config.get("achievement_poll_interval", 1800)
         self.retry_times: int = self.config.get("retry_times", 3)
         self.detailed_log: bool = self.config.get("detailed_poll_log", False)
         
@@ -271,7 +271,7 @@ class SteamMonitor(Star):
             return final_name
 
     async def get_recently_played_games(self, steam_id: str) -> Optional[List[Dict]]:
-        url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={self.api_key}&steamid={steam_id}&count=2"
+        url = f"https://api.steampowered.com/IPlayerService/GetRecentlyPlayedGames/v1/?key={self.api_key}&steamid={steam_id}"
         data = await self._make_request(url, ignore_errors=True)
         return data.get("response", {}).get("games") if data and data.get("response", {}).get("total_count", 0) > 0 else None
 
@@ -337,6 +337,13 @@ class SteamMonitor(Star):
                         "gameid": player.get("gameid"),
                         "gameextrainfo": player.get("gameextrainfo"),
                     }
+                    
+                    # 尝试统一游戏名为双语名（利用缓存，避免重复网络请求）
+                    if current_state["gameid"]:
+                        cached_name = self.game_cache.get(str(current_state["gameid"]))
+                        if cached_name:
+                            current_state["gameextrainfo"] = cached_name
+
                     last_state = self.last_states.get(steam_id, {})
                     
                     if self.detailed_log:
@@ -473,20 +480,36 @@ class SteamMonitor(Star):
                 # 策略1: 获取最近玩过的游戏
                 recent_games = await self.get_recently_played_games(steam_id)
                 if recent_games:
-                    for game in recent_games:
+                    for index, game in enumerate(recent_games):
                         app_id = str(game["appid"])
-                        app_ids_to_check.add(app_id)
 
                         # 计算游戏时长变化
                         playtime_forever = game.get("playtime_forever", 0)
-                        last_playtime = self.last_playtimes.get(steam_id, {}).get(app_id, 0)
+                        stored_playtime = self.last_playtimes.get(steam_id, {}).get(app_id)
                         
-                        if playtime_forever > last_playtime:
-                            diff = playtime_forever - last_playtime
-                            # 尝试获取双语名称，如果失败则使用 recent_games 中的名称
-                            game_name = await self.get_game_name(app_id)
-                            if "未知游戏" in game_name and game.get("name"):
-                                game_name = game["name"]
+                        diff = 0
+                        should_update = False
+                        
+                        if stored_playtime is None:
+                            # 首次记录该游戏：视为初始化，不计算差值（避免将历史总时长误报为新增时长），但需要更新存储
+                            should_update = True
+                            diff = 0
+                        elif playtime_forever > stored_playtime:
+                            should_update = True
+                            diff = playtime_forever - stored_playtime
+                        
+                        # 智能过滤：仅检查 前2名(兜底) 或 时长增加 的游戏的成就
+                        # 这样即使返回了50个游戏，也只会检查真正活跃的那几个，避免API爆炸
+                        if index < 2 or diff > 0:
+                            app_ids_to_check.add(app_id)
+                            
+                        if should_update:
+                            # 仅当需要推送(diff>0)时才调用API获取双语名，否则用API自带名或暂存名
+                            game_name = game.get("name", f"未知游戏({app_id})")
+                            if diff > 0:
+                                game_name = await self.get_game_name(app_id)
+                                if "未知游戏" in game_name and game.get("name"):
+                                    game_name = game["name"]
                             
                             playtime_updates[app_id] = {
                                 "name": game_name,
@@ -568,12 +591,17 @@ class SteamMonitor(Star):
                 if "未知游戏" in game_name and current_state.get("gameextrainfo"):
                     game_name = current_state.get("gameextrainfo")
                 
+                # 统一更新到状态字典中，确保后续逻辑使用一致的名称
                 current_state["gameextrainfo"] = game_name
                 messages_to_send.append((f"{player_name} 开始玩 {game_name} 了", "status"))
             else: # 退出游戏
                 last_game_name = await self.get_game_name(last_game_id)
                 if "未知游戏" in last_game_name and last_state.get("gameextrainfo"):
                     last_game_name = last_state.get("gameextrainfo")
+                
+                # 统一更新到状态字典中，确保后续逻辑（如下方的消息格式化循环）使用一致的名称
+                last_state["gameextrainfo"] = last_game_name
+                
                 if current_status == 0: # 游戏中 -> 离线
                     # 使用一个特殊的元组来延迟决定消息内容
                     messages_to_send.append(((player_name, last_game_name), "game_to_offline"))
