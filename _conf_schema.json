@@ -64,11 +64,106 @@
     "hint": "若为空则推送消息的主语默认变为“有人”。例如：【Steam昵称】上线了→有人上线了；若输入“神秘群友”：【Steam昵称】上线了→神秘群友上线了。"
   },
   "monitored_targets": {
-    "description": "监控目标 (支持会话独立设置)",
-    "type": "text",
-    "default": "{\n  \"napcat:GroupMessage:12345678\": {\n    \"steam_ids\": [\n      \"76000000000000023\",\n      \"76000000000000039\"\n    ],\n    \"settings\": null\n  },\n  \"napcat:GroupMessage:87654321\": {\n    \"steam_ids\": [\n      \"76000000000000093\",\n      \"76000000000000043\"\n    ],\n    \"settings\": {\n      \"status_notification\": false,\n      \"achievements_notification\": true,\n      \"playtime_notification\": true\n    }\n  },\n  \"napcat:FriendMessage:10001\": {\n    \"steam_ids\": [\n      \"76000000000000030\"\n    ],\n    \"settings\": {\n      \"status_notification\": true,\n      \"online_offline_notification\": true,\n      \"achievements_notification\": false,\n      \"private_mode\": true\n    }\n  }\n}",
-    "hint": "JSON格式。每个会话ID下包含 steam_ids 列表和可选的 settings。settings可覆盖全局通知设置，不填则使用全局设置。",
-    "editor_mode": true,
-    "editor_language": "json"
+    "description": "监控目标",
+    "type": "template_list",
+    "hint": "点击【添加条目】创建监控组。每个监控组可绑定多个会话和多个 Steam 用户，并可单独覆盖全局推送设置。",
+    "templates": {
+      "monitor_group": {
+        "name": "监控组",
+        "hint": "一个监控组将指定的 Steam 用户状态推送到指定的会话中",
+        "items": {
+          "note": {
+            "description": "备注",
+            "type": "string",
+            "default": "",
+            "hint": "可选，方便辨别不同监控组（如宿舍群、工作群）"
+          },
+          "sessions": {
+            "description": "推送会话列表",
+            "type": "list",
+            "default": [],
+            "hint": "填写完整的会话ID（如 napcat:GroupMessage:987654321），可在对话中发送 sid 命令查看当前会话ID"
+          },
+          "steam_ids": {
+            "description": "监控的 Steam ID 列表",
+            "type": "list",
+            "default": [],
+            "hint": "填写要监控的17位 Steam ID"
+          },
+          "settings": {
+            "description": "推送设置（不勾选则使用全局设置）",
+            "type": "object",
+            "hint": "勾选对应的【自定义】开关后，可为本监控组单独设置，否则跟随全局设置",
+            "items": {
+              "use_custom_status": {
+                "description": "自定义【状态通知】",
+                "type": "bool",
+                "default": false,
+                "hint": "勾选后，下方的【状态通知】开关将覆盖全局设置"
+              },
+              "status_notification": {
+                "description": "├ 状态通知",
+                "type": "bool",
+                "default": true,
+                "hint": "是否启用Steam状态通知（游戏开始/结束）",
+                "condition": {"settings.use_custom_status": true}
+              },
+              "use_custom_online_offline": {
+                "description": "自定义【上下线通知】",
+                "type": "bool",
+                "default": false,
+                "hint": "勾选后，下方的【上下线通知】开关将覆盖全局设置"
+              },
+              "online_offline_notification": {
+                "description": "├ 上下线通知",
+                "type": "bool",
+                "default": false,
+                "hint": "是否启用上线/下线提醒",
+                "condition": {"settings.use_custom_online_offline": true}
+              },
+              "use_custom_achievements": {
+                "description": "自定义【成就通知】",
+                "type": "bool",
+                "default": false,
+                "hint": "勾选后，下方的【成就通知】开关将覆盖全局设置"
+              },
+              "achievements_notification": {
+                "description": "├ 成就通知",
+                "type": "bool",
+                "default": true,
+                "hint": "是否启用成就通知",
+                "condition": {"settings.use_custom_achievements": true}
+              },
+              "use_custom_playtime": {
+                "description": "自定义【游戏时长通知】",
+                "type": "bool",
+                "default": false,
+                "hint": "勾选后，下方的【游戏时长通知】开关将覆盖全局设置"
+              },
+              "playtime_notification": {
+                "description": "├ 游戏时长通知",
+                "type": "bool",
+                "default": true,
+                "hint": "是否启用游戏时长通知",
+                "condition": {"settings.use_custom_playtime": true}
+              },
+              "use_custom_private": {
+                "description": "自定义【隐私模式】",
+                "type": "bool",
+                "default": false,
+                "hint": "勾选后，下方的【隐私模式】开关将覆盖全局设置"
+              },
+              "private_mode": {
+                "description": "├ 隐私模式",
+                "type": "bool",
+                "default": false,
+                "hint": "是否启用隐私模式（用隐私代称代替Steam昵称）",
+                "condition": {"settings.use_custom_private": true}
+              }
+            }
+          }
+        }
+      }
+    }
   }
 }
