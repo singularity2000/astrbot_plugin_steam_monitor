@@ -989,7 +989,11 @@ class SteamMonitor(Star):
                 continue
 
             session_label = ", ".join(sessions) if sessions else "（未绑定会话）"
-            final_reply_parts.append(f"--- 监控组{idx + 1}: {session_label} ---")
+            group_note = str(group.get("note", "")).strip()
+            group_title = (
+                f"监控组{idx + 1}（{group_note}）" if group_note else f"监控组{idx + 1}"
+            )
+            final_reply_parts.append(f"--- {group_title}: {session_label} ---")
             tasks = [
                 self._get_formatted_status(sid, player_map.get(sid))
                 for sid in steam_ids

@@ -102,7 +102,7 @@
                 "hint": "勾选后，下方的【状态通知】开关将覆盖全局设置"
               },
               "status_notification": {
-                "description": "├ 状态通知",
+                "description": "———————————— 状态通知",
                 "type": "bool",
                 "default": true,
                 "hint": "是否启用Steam状态通知（游戏开始/结束）",
@@ -115,7 +115,7 @@
                 "hint": "勾选后，下方的【上下线通知】开关将覆盖全局设置"
               },
               "online_offline_notification": {
-                "description": "├ 上下线通知",
+                "description": "———————————— 上下线通知",
                 "type": "bool",
                 "default": false,
                 "hint": "是否启用上线/下线提醒",
@@ -128,7 +128,7 @@
                 "hint": "勾选后，下方的【成就通知】开关将覆盖全局设置"
               },
               "achievements_notification": {
-                "description": "├ 成就通知",
+                "description": "———————————— 成就通知",
                 "type": "bool",
                 "default": true,
                 "hint": "是否启用成就通知",
@@ -141,7 +141,7 @@
                 "hint": "勾选后，下方的【游戏时长通知】开关将覆盖全局设置"
               },
               "playtime_notification": {
-                "description": "├ 游戏时长通知",
+                "description": "———————————— 游戏时长通知",
                 "type": "bool",
                 "default": true,
                 "hint": "是否启用游戏时长通知",
@@ -154,7 +154,7 @@
                 "hint": "勾选后，下方的【隐私模式】开关将覆盖全局设置"
               },
               "private_mode": {
-                "description": "├ 隐私模式",
+                "description": "———————————— 隐私模式",
                 "type": "bool",
                 "default": false,
                 "hint": "是否启用隐私模式（用隐私代称代替Steam昵称）",
