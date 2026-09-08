@@ -9,7 +9,7 @@
     "description": "敏感操作需管理员权限",
     "type": "bool",
     "default": true,
-    "hint": "开启后，'steam alllist', 'steam add', 'steam remove' 命令将仅限机器人管理员使用。"
+    "hint": "开启后，'steam alllist', 'steam add', 'steam remove', 'steam health' 命令将仅限机器人管理员使用。"
   },
   "status_poll_interval": {
     "description": "检查【在线/游戏状态】的间隔（秒）",
@@ -30,6 +30,12 @@
     "description": "是否在控制台输出详细轮询日志",
     "type": "bool",
     "default": false
+  },
+  "log_masking": {
+    "description": "日志脱敏",
+    "type": "bool",
+    "default": true,
+    "hint": "开启后，日志中的 Steam API Key 和 17 位 Steam ID 会显示为 ***。"
   },
   "status_notification": {
     "description": "【总开关】是否启用Steam状态通知（游戏、在线/离线）",
@@ -88,77 +94,52 @@
             "description": "监控的 Steam ID 列表",
             "type": "list",
             "default": [],
-            "hint": "填写要监控的17位 Steam ID"
+            "hint": "填写17位 Steam ID。首次保存后会自动补上昵称备注，例如 76561198xxxxxxxxx（张三）。改成 ID（） 会重新自动获取；删除（）表示关闭该用户的备注。"
           },
           "settings": {
-            "description": "推送设置（不勾选则使用全局设置）",
+            "description": "推送设置",
             "type": "object",
-            "hint": "勾选对应的【自定义】开关后，可为本监控组单独设置，否则跟随全局设置",
+            "hint": "每项都可选择：跟随全局、开启或关闭",
             "items": {
-              "use_custom_status": {
-                "description": "自定义【状态通知】",
-                "type": "bool",
-                "default": false,
-                "hint": "勾选后，下方的【状态通知】开关将覆盖全局设置"
+              "status_notification_mode": {
+                "description": "状态通知",
+                "type": "string",
+                "options": ["inherit", "on", "off"],
+                "labels": ["跟随全局", "开启", "关闭"],
+                "default": "inherit",
+                "hint": "控制游戏开始/结束通知"
               },
-              "status_notification": {
-                "description": "———————————— 状态通知",
-                "type": "bool",
-                "default": true,
-                "hint": "是否启用Steam状态通知（游戏开始/结束）",
-                "condition": {"settings.use_custom_status": true}
+              "online_offline_notification_mode": {
+                "description": "上下线通知",
+                "type": "string",
+                "options": ["inherit", "on", "off"],
+                "labels": ["跟随全局", "开启", "关闭"],
+                "default": "inherit",
+                "hint": "控制上线/下线提醒，仍依赖状态通知开启"
               },
-              "use_custom_online_offline": {
-                "description": "自定义【上下线通知】",
-                "type": "bool",
-                "default": false,
-                "hint": "勾选后，下方的【上下线通知】开关将覆盖全局设置"
+              "achievements_notification_mode": {
+                "description": "成就通知",
+                "type": "string",
+                "options": ["inherit", "on", "off"],
+                "labels": ["跟随全局", "开启", "关闭"],
+                "default": "inherit",
+                "hint": "控制新成就通知"
               },
-              "online_offline_notification": {
-                "description": "———————————— 上下线通知",
-                "type": "bool",
-                "default": false,
-                "hint": "是否启用上线/下线提醒",
-                "condition": {"settings.use_custom_online_offline": true}
+              "playtime_notification_mode": {
+                "description": "游戏时长通知",
+                "type": "string",
+                "options": ["inherit", "on", "off"],
+                "labels": ["跟随全局", "开启", "关闭"],
+                "default": "inherit",
+                "hint": "控制游戏时长变化通知"
               },
-              "use_custom_achievements": {
-                "description": "自定义【成就通知】",
-                "type": "bool",
-                "default": false,
-                "hint": "勾选后，下方的【成就通知】开关将覆盖全局设置"
-              },
-              "achievements_notification": {
-                "description": "———————————— 成就通知",
-                "type": "bool",
-                "default": true,
-                "hint": "是否启用成就通知",
-                "condition": {"settings.use_custom_achievements": true}
-              },
-              "use_custom_playtime": {
-                "description": "自定义【游戏时长通知】",
-                "type": "bool",
-                "default": false,
-                "hint": "勾选后，下方的【游戏时长通知】开关将覆盖全局设置"
-              },
-              "playtime_notification": {
-                "description": "———————————— 游戏时长通知",
-                "type": "bool",
-                "default": true,
-                "hint": "是否启用游戏时长通知",
-                "condition": {"settings.use_custom_playtime": true}
-              },
-              "use_custom_private": {
-                "description": "自定义【隐私模式】",
-                "type": "bool",
-                "default": false,
-                "hint": "勾选后，下方的【隐私模式】开关将覆盖全局设置"
-              },
-              "private_mode": {
-                "description": "———————————— 隐私模式",
-                "type": "bool",
-                "default": false,
-                "hint": "是否启用隐私模式（用隐私代称代替Steam昵称）",
-                "condition": {"settings.use_custom_private": true}
+              "privacy_mode_setting": {
+                "description": "隐私模式",
+                "type": "string",
+                "options": ["inherit", "on", "off"],
+                "labels": ["跟随全局", "开启", "关闭"],
+                "default": "inherit",
+                "hint": "开启后用隐私代称代替Steam昵称"
               }
             }
           }
